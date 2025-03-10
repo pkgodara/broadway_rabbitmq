@@ -692,7 +692,7 @@ defmodule BroadwayRabbitMQ.Producer do
         # We monitor the channel but link to the connection (in the client, not here).
         channel_ref = Process.monitor(channel.pid)
         backoff = backoff && Backoff.reset(backoff)
-        consumer_tag = client.consume(channel, config)
+        {:ok, consumer_tag} = client.consume(channel, config)
 
         %{
           state

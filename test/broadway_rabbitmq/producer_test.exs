@@ -81,7 +81,7 @@ defmodule BroadwayRabbitMQ.ProducerTest do
     @impl true
     def consume(_channel, _config) do
       send(self(), {:basic_consume_ok, %{consumer_tag: :fake_consumer_tag}})
-      :fake_consumer_tag
+      {:ok, :fake_consumer_tag}
     end
 
     @impl true

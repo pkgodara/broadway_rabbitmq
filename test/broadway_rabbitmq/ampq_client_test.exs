@@ -12,10 +12,12 @@ defmodule BroadwayRabbitMQ.AmqpClientTest do
               bindings: [],
               declare_opts: nil,
               queue: "queue",
-              after_connect: after_connect
+              after_connect: after_connect,
+              before_consume: before_consume
             }} = AmqpClient.init(queue: "queue")
 
     assert after_connect.(:channel) == :ok
+    assert before_consume.(:channel) == :ok
   end
 
   test "connection name" do
@@ -25,6 +27,7 @@ defmodule BroadwayRabbitMQ.AmqpClientTest do
   describe "validate init options" do
     test "supported options" do
       after_connect = fn _ -> :ok end
+      before_consume = fn _ -> :ok end
 
       connection = [
         username: nil,
@@ -51,6 +54,7 @@ defmodule BroadwayRabbitMQ.AmqpClientTest do
         connection: connection,
         qos: qos,
         after_connect: after_connect,
+        before_consume: before_consume,
         consume_options: [no_ack: true, exclusive: false]
       ]
 
@@ -67,6 +71,7 @@ defmodule BroadwayRabbitMQ.AmqpClientTest do
                   declare_opts: nil,
                   queue: "queue",
                   after_connect: after_connect,
+                  before_consume: before_consume,
                   consume_options: [no_ack: true, exclusive: false]
                 }}
     end
@@ -347,6 +352,21 @@ defmodule BroadwayRabbitMQ.AmqpClientTest do
       message = "unexpected return value from the :after_connect function: :bad_return_value"
       assert_raise RuntimeError, message, fn -> AmqpClient.setup_channel(config) end
     end
+
+    @tag :capture_log
+    test "raises if :before_consume returns a bad value" do
+      {:ok, config} =
+        AmqpClient.init(
+          queue: "",
+          declare: [auto_delete: true],
+          before_consume: fn _channel -> :bad_return_value end
+        )
+
+      assert {:ok, %AMQP.Channel{} = channel} = AmqpClient.setup_channel(config)
+
+      message = "unexpected return value from the :before_consume function: :bad_return_value"
+      assert_raise RuntimeError, message, fn -> AmqpClient.consume(channel, config) end
+    end
   end
 
   @tag :integration
@@ -358,7 +378,7 @@ defmodule BroadwayRabbitMQ.AmqpClientTest do
     assert {:ok, %AMQP.Channel{} = channel} = AmqpClient.setup_channel(config)
 
     # Consume from the queue.
-    consumer_tag = AmqpClient.consume(channel, config)
+    {:ok, consumer_tag} = AmqpClient.consume(channel, config)
     assert_receive {:basic_consume_ok, %{consumer_tag: ^consumer_tag}}
 
     # Publish a message and ack it.

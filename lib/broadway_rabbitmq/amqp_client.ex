@@ -157,6 +157,25 @@ defmodule BroadwayRabbitMQ.AmqpClient do
       the `:declare` and `:bindings` options (described above).
       """
     ],
+    before_consume: [
+      type: {:fun, 1},
+      doc: """
+      A function that takes the AMQP channel that the producer
+      is connected to and can run arbitrary setup. This function can return
+      `:ok` if everything went well or `{:error, reason}`. In the error case then
+      the producer will consider the connection failed and will try to reconnect
+      later (same behavior as when the connection drops, for example).
+      This function is run **before** the consumer starts consuming messages, but
+      **after** the queue is declared and the bindings are set up. Until this function
+      returns, the messages will keep queueing up in the RabbitMQ. This function is useful
+      to execute additional logic before we start processing messages, for example, to
+      load existing state from any database or to wait for some external system to
+      be ready. This could make sure that the messages are not lost before the system
+      is fully ready to process them. Make sure that this function does not block for
+      too long, otherwise, the RabbitMQ server might consider the connection dead or the
+      messages can get expired if configured for the queue.
+      """
+    ],
     consume_options: [
       type: :keyword_list,
       default: [],
@@ -194,7 +213,8 @@ defmodule BroadwayRabbitMQ.AmqpClient do
          qos: Keyword.fetch!(opts, :qos),
          metadata: Keyword.fetch!(opts, :metadata),
          consume_options: Keyword.fetch!(opts, :consume_options),
-         after_connect: Keyword.get(opts, :after_connect, fn _channel -> :ok end)
+         after_connect: Keyword.get(opts, :after_connect, fn _channel -> :ok end),
+         before_consume: Keyword.get(opts, :before_consume, fn _channel -> :ok end)
        }}
     else
       {:error, %NimbleOptions.ValidationError{} = error} -> {:error, Exception.message(error)}
@@ -372,9 +392,29 @@ defmodule BroadwayRabbitMQ.AmqpClient do
   end
 
   @impl true
-  def consume(channel, %{queue: queue, consume_options: consume_options} = _config) do
-    {:ok, consumer_tag} = Basic.consume(channel, queue, _consumer_pid = self(), consume_options)
-    consumer_tag
+  def consume(channel, %{queue: queue, consume_options: consume_options} = config) do
+    case call_before_consume(config, channel) do
+      :ok ->
+        Basic.consume(channel, queue, _consumer_pid = self(), consume_options)
+
+      {:error, reason} ->
+        close_channel(config, channel)
+        {:error, reason}
+    end
+  end
+
+  defp call_before_consume(config, channel) do
+    case config.before_consume.(channel) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        close_channel(config, channel)
+        raise "unexpected return value from the :before_consume function: #{inspect(other)}"
+    end
   end
 
   @impl true

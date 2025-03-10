@@ -16,7 +16,7 @@ defmodule BroadwayRabbitMQ.RabbitmqClient do
   @callback ack(channel :: Channel.t(), delivery_tag :: Basic.delivery_tag()) :: any
   @callback reject(channel :: Channel.t(), delivery_tag :: Basic.delivery_tag(), opts :: keyword) ::
               any
-  @callback consume(channel :: Channel.t(), config) :: Basic.consumer_tag()
+  @callback consume(channel :: Channel.t(), config) :: {:ok, Basic.consumer_tag()} | {:error, any}
   @callback cancel(channel :: Channel.t(), Basic.consumer_tag()) :: :ok | Basic.error()
   @callback close_connection(config, channel :: Channel.t()) :: :ok | {:error, any}
 end
